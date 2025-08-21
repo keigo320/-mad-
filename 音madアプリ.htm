@@ -42,7 +42,7 @@ header button {
   position: relative;
   overflow: hidden;
   border: 2px solid #444;
-  cursor: nwse-resize; /* 端でリサイズカーソル */
+  cursor: nwse-resize;
 }
 main {
   display: flex; gap: 10px; width: 95%; flex: 1; overflow: hidden;
@@ -60,6 +60,10 @@ main {
   margin-left: auto;
   background: #ff4444; border: none; padding: 6px 10px;
   border-radius: 6px; color: #fff;
+  cursor: pointer;
+}
+.videoCard.playing {
+  border: 2px solid #ff4444;
 }
 </style>
 </head>
@@ -97,6 +101,7 @@ let player;
 const DEFAULT_VIDEO = "jIJrSuPSns0";
 const DEFAULT_WIDTH = 800;
 const DEFAULT_HEIGHT = 450;
+let currentPlayingIndex = -1;
 
 function onYouTubeIframeAPIReady() {
   player = new YT.Player('player', {
@@ -104,18 +109,34 @@ function onYouTubeIframeAPIReady() {
     videoId: DEFAULT_VIDEO,
     playerVars: {
       'playsinline': 1,
-      'controls': 0,
+      'controls': 1,
       'modestbranding': 1,
       'rel': 0,
       'fs': 0
+    },
+    events: {
+      'onStateChange': onPlayerStateChange
     }
   });
-  // デフォルト動画もオブジェクトで追加
-  playlist.push({id: DEFAULT_VIDEO, title: "デフォルト動画", thumb: ""});
-  renderPlaylist();
-  player.loadPlaylist(playlist.map(v => v.id));
 }
 
+// 再生状態変更でプレイリストUI更新
+function onPlayerStateChange(event) {
+  if(event.data === YT.PlayerState.PLAYING) {
+    highlightPlaying();
+  }
+}
+
+// プレイ中の動画をハイライト
+function highlightPlaying() {
+  const listDiv = document.getElementById("playlist");
+  [...listDiv.children].forEach((card, i) => {
+    if(i === currentPlayingIndex) card.classList.add("playing");
+    else card.classList.remove("playing");
+  });
+}
+
+// 検索
 async function searchVideos() {
   const q = document.getElementById("query").value || "音MAD";
   const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(q)}&maxResults=10&key=${API_KEY}`;
@@ -140,12 +161,13 @@ document.getElementById("searchForm").addEventListener("submit", function(e){
   searchVideos();
 });
 
+// プレイリストに追加
 function addToPlaylist(id, title, thumb) {
   playlist.push({id, title, thumb});
-  player.loadPlaylist(playlist.map(v => v.id), playlist.length - 1);
   renderPlaylist();
 }
 
+// プレイリスト描画
 function renderPlaylist() {
   const listDiv = document.getElementById("playlist");
   listDiv.innerHTML = "";
@@ -154,25 +176,36 @@ function renderPlaylist() {
     card.className = "videoCard";
     card.innerHTML = `<img src="${video.thumb || "https://img.youtube.com/vi/"+video.id+"/mqdefault.jpg"}">
       <div>${video.title}</div>
-      <button onclick="removeFromPlaylist(${i})">削除</button>`;
+      <button onclick="removeFromPlaylist(${i})">削除</button>
+      <button onclick="playFromPlaylist(${i})">再生</button>`;
     listDiv.appendChild(card);
   });
+  highlightPlaying();
 }
 
+// プレイリストから削除
 function removeFromPlaylist(i) {
   playlist.splice(i,1);
-  if(playlist.length===0) player.stopVideo();
-  else player.loadPlaylist(playlist.map(v => v.id));
+  if(currentPlayingIndex === i) player.stopVideo();
+  else if(currentPlayingIndex > i) currentPlayingIndex--;
   renderPlaylist();
 }
 
+// プレイリストの動画を再生
+function playFromPlaylist(i) {
+  const video = playlist[i];
+  player.loadVideoById(video.id);
+  currentPlayingIndex = i;
+  highlightPlaying();
+}
+
+// URL共有用（後で拡張可）
 window.onload = () => {
   const params = new URLSearchParams(location.search);
   if(params.has("list")) {
     const ids = params.get("list").split(",");
-    playlist = ids.map(id => ({id, title:id, thumb:""})); // タイトルはIDで仮
+    playlist = ids.map(id => ({id, title:id, thumb:""}));
     renderPlaylist();
-    player.loadPlaylist(playlist.map(v => v.id));
   }
 }
 
