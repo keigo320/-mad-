@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>音MAD プレイリストアプリ</title>
+<style>
+body {
+  margin: 0; font-family: 'Segoe UI', sans-serif;
+  background: #111; color: #fff;
+  display: flex; flex-direction: column; align-items: center; min-height: 100vh;
+}
+header {
+  padding: 10px; background: #222;
+  display: flex; align-items: center; gap: 10px; width: 95%;
+  box-sizing: border-box;
+}
+header input {
+  flex: 1; padding: 8px;
+  border-radius: 8px; border: none;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+header button {
+  padding: 8px 12px; border: none; border-radius: 8px;
+  background: #ff4444; color: #fff; font-weight: bold;
+}
+#resetSize {
+  margin: 10px 0;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  background: #ff4444;
+  color: #fff;
+  cursor: pointer;
+}
+#playerContainer {
+  background: black;
+  width: 800px;
+  height: 450px;
+  margin: 10px 0;
+  position: relative;
+  overflow: hidden;
+  border: 2px solid #444;
+  cursor: nwse-resize; /* 端でリサイズカーソル */
+}
+main {
+  display: flex; gap: 10px; width: 95%; flex: 1; overflow: hidden;
+}
+#searchResults, #playlistPanel {
+  flex: 1; overflow-y: auto; padding: 10px; background: #181818;
+}
+#searchResults h2, #playlistPanel h2 { margin-top: 0; }
+.videoCard {
+  background: #222; padding: 10px; border-radius: 12px;
+  margin-bottom: 10px; display: flex; gap: 10px; align-items: center;
+}
+.videoCard img { width: 120px; border-radius: 8px; }
+.videoCard button {
+  margin-left: auto;
+  background: #ff4444; border: none; padding: 6px 10px;
+  border-radius: 6px; color: #fff;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <form id="searchForm" style="display:flex; flex:1;">
+    <input type="text" id="query" placeholder="音MADを検索">
+    <button type="submit">検索</button>
+  </form>
+</header>
+
+<button id="resetSize">リセット</button>
+
+<div id="playerContainer">
+  <div id="player"></div>
+</div>
+
+<main>
+  <section id="searchResults">
+    <h2>検索結果</h2>
+    <div id="results"></div>
+  </section>
+  <section id="playlistPanel">
+    <h2>プレイリスト</h2>
+    <div id="playlist"></div>
+  </section>
+</main>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+const API_KEY = "YOUR_API_KEY_HERE";
+let playlist = []; // {id, title, thumb}
+let player;
+const DEFAULT_VIDEO = "jIJrSuPSns0";
+const DEFAULT_WIDTH = 800;
+const DEFAULT_HEIGHT = 450;
+
+function onYouTubeIframeAPIReady() {
+  player = new YT.Player('player', {
+    width: "100%", height: "100%",
+    videoId: DEFAULT_VIDEO,
+    playerVars: {
+      'playsinline': 1,
+      'controls': 0,
+      'modestbranding': 1,
+      'rel': 0,
+      'fs': 0
+    }
+  });
+  // デフォルト動画もオブジェクトで追加
+  playlist.push({id: DEFAULT_VIDEO, title: "デフォルト動画", thumb: ""});
+  renderPlaylist();
+  player.loadPlaylist(playlist.map(v => v.id));
+}
+
+async function searchVideos() {
+  const q = document.getElementById("query").value || "音MAD";
+  const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(q)}&maxResults=10&key=${API_KEY}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  const resultsDiv = document.getElementById("results");
+  resultsDiv.innerHTML = "";
+  data.items.forEach(item => {
+    const vid = item.id.videoId;
+    const title = item.snippet.title;
+    const thumb = item.snippet.thumbnails.medium.url;
+    const card = document.createElement("div");
+    card.className = "videoCard";
+    card.innerHTML = `<img src="${thumb}"><div>${title}</div>
+      <button onclick="addToPlaylist('${vid}','${title}','${thumb}')">追加</button>`;
+    resultsDiv.appendChild(card);
+  });
+}
+
+document.getElementById("searchForm").addEventListener("submit", function(e){
+  e.preventDefault();
+  searchVideos();
+});
+
+function addToPlaylist(id, title, thumb) {
+  playlist.push({id, title, thumb});
+  player.loadPlaylist(playlist.map(v => v.id), playlist.length - 1);
+  renderPlaylist();
+}
+
+function renderPlaylist() {
+  const listDiv = document.getElementById("playlist");
+  listDiv.innerHTML = "";
+  playlist.forEach((video, i) => {
+    const card = document.createElement("div");
+    card.className = "videoCard";
+    card.innerHTML = `<img src="${video.thumb || "https://img.youtube.com/vi/"+video.id+"/mqdefault.jpg"}">
+      <div>${video.title}</div>
+      <button onclick="removeFromPlaylist(${i})">削除</button>`;
+    listDiv.appendChild(card);
+  });
+}
+
+function removeFromPlaylist(i) {
+  playlist.splice(i,1);
+  if(playlist.length===0) player.stopVideo();
+  else player.loadPlaylist(playlist.map(v => v.id));
+  renderPlaylist();
+}
+
+window.onload = () => {
+  const params = new URLSearchParams(location.search);
+  if(params.has("list")) {
+    const ids = params.get("list").split(",");
+    playlist = ids.map(id => ({id, title:id, thumb:""})); // タイトルはIDで仮
+    renderPlaylist();
+    player.loadPlaylist(playlist.map(v => v.id));
+  }
+}
+
+// 🔹 プレイヤーサイズ変更（端ドラッグ・縦横比固定）
+const playerContainer = document.getElementById("playerContainer");
+const resetBtn = document.getElementById("resetSize");
+let isResizing = false;
+
+playerContainer.addEventListener("mousedown", e => {
+  if(e.offsetX > playerContainer.clientWidth - 20 && e.offsetY > playerContainer.clientHeight - 20) {
+    isResizing = true;
+    document.body.style.userSelect = "none";
+  }
+});
+
+document.addEventListener("mousemove", e => {
+  if(!isResizing) return;
+  const rect = playerContainer.getBoundingClientRect();
+  let newWidth = e.clientX - rect.left;
+  if(newWidth<200) newWidth=200;
+  let aspect = DEFAULT_WIDTH / DEFAULT_HEIGHT;
+  let newHeight = newWidth / aspect;
+  playerContainer.style.width = newWidth + "px";
+  playerContainer.style.height = newHeight + "px";
+});
+
+document.addEventListener("mouseup", e => {
+  isResizing = false;
+  document.body.style.userSelect = "auto";
+});
+
+// リセットボタン
+resetBtn.addEventListener("click", () => {
+  playerContainer.style.width = DEFAULT_WIDTH + "px";
+  playerContainer.style.height = DEFAULT_HEIGHT + "px";
+});
+</script>
+</body>
+</html>
